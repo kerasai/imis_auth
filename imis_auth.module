@@ -11,8 +11,8 @@ function imis_auth_menu() {
     'title'             => 'iMIS Member authentication',
     'page callback'    => 'drupal_get_form',
     'page arguments'   => array('imis_auth_settings'),
-    'access arguments' => array('administer site configuration'),
-    'description'       => 'Let users login to the site and access content using their web login and password.',
+    'access arguments' => array('administer iMIS authentication settings'),
+    'description'       => 'Manage settings for the iMIS authentication module including authentication URL and optional extra permission checks',
   );
 
   return $items;
@@ -35,15 +35,16 @@ function imis_auth_vars() {
 function imis_auth_settings() {
   $form['settings'] = array(
     '#type'          => 'fieldset',
-    '#title'         => t('Settings'),
-    '#description'   => t('iMIS member site host name to authenticate against. You have to include the <em>http://</em> prefix, but not end it with a / character.'),
+    '#title'         => t('iMIS member site host'),
+    '#description'   => t('iMIS member site host name, service and method to authenticate against.'),
   );
 
   $form['settings']['imis_auth_host'] =  array(
     '#type'          => 'textfield',
     '#title'         => t('Host'),
     '#default_value' => variable_get('imis_auth_host', ''),
-    '#description'   => t('The host name to authenticate against.'),
+    '#description'   => t('The host name to authenticate against. You must include the url scheme <em>e.g. http://</em>. Do not include a trailing <em>/</em>'),
+    '#required' => TRUE,
   );
 
   $form['settings']['imis_auth_ws_filename'] =  array(
@@ -51,6 +52,7 @@ function imis_auth_settings() {
     '#title'         => t('Webservice filename'),
     '#default_value' => variable_get('imis_auth_ws_filename', ''),
     '#description'   => t('The webservice filename to authenticate against.'),
+    '#required' => TRUE,
   );
 
   $form['settings']['imis_auth_ws_method'] =  array(
@@ -58,45 +60,68 @@ function imis_auth_settings() {
     '#title'         => t('Webservice method'),
     '#default_value' => variable_get('imis_auth_ws_method', ''),
     '#description'   => t('The webservice method to authenticate against.'),
+    '#required' => TRUE,
   );
 
-  $form['settings']['vars'] = array(
-    '#type'          => 'fieldset',
-    '#collapible'    => TRUE,
-    '#collapsed'     => TRUE,
-    '#title'         => t('Variables'),
-    '#description'   => t('Variables values to validate.'),
-  );
-
-  foreach (imis_auth_vars() as $key => $var) {
-    $form['settings']['vars']['imis_auth_var_' . $key] =  array(
-      '#type'          => 'checkbox',
-      '#title'         => t('Check @var', array('@var' => $var)),
-      '#default_value' => variable_get('imis_auth_var_' . $key, 0),
-    );
-
-    $form['settings']['vars']['imis_auth_val_' . $key] =  array(
-      '#type'          => 'textarea',
-      '#title'         => t('Valid values'),
-      '#default_value' => variable_get('imis_auth_val_' . $key, ''),
-    );
-  }
-
-  $form['settings']['imis_auth_message'] = array(
+  $form['imis_auth_message'] = array(
     '#type'          => 'textarea',
     '#title'         => t('Login notice'),
     '#default_value' => variable_get('imis_auth_message', ''),
     '#description'   => t('You can include a note that will apear below the login form and the login block to notify users that they can authenticate using iMIS credentials.'),
   );
 
-  $form['settings']['imis_auth_exempt'] = array(
+  $form['imis_auth_exempt'] = array(
     '#type'          => 'textarea',
     '#title'         => t('Exempt users'),
     '#default_value' => variable_get('imis_auth_exempt', ''),
     '#description'   => t('List of Drupal User IDs on this site to exempt from iMIS authentication. Enter one uid per line. These users will login using their Drupal credentials, and can have roles in addition to "authenticated user".'),
   );
 
+  $form['vars'] = array(
+    '#type'          => 'fieldset',
+    '#collapsible'   => TRUE,
+    '#collapsed'     => TRUE,
+    '#title'         => t('Additional user authentication checks'),
+    '#description'   => t('You may wish to check certain user values before granting access to the site.
+                           Select the addition checks you want to make and provide a list of valid values
+                           that a user must have before they can be granted access to your site.'),
+  );
+
+  foreach (imis_auth_vars() as $key => $var) {
+    $form['vars']['imis_auth_var_' . $key] =  array(
+      '#type'          => 'checkbox',
+      '#title'         => t('Check @var', array('@var' => $var)),
+      '#default_value' => variable_get('imis_auth_var_' . $key, 0),
+    );
+
+    $form['vars']['imis_auth_val_' . $key] =  array(
+      '#type'          => 'textarea',
+      '#title'         => t('Valid values'),
+      '#default_value' => variable_get('imis_auth_val_' . $key, ''),
+      '#description'   => t('One value per line.')
+    );
+  }
+
+  $form['#validate'][] = 'imis_auth_admin_form_validate';
+
   return system_settings_form($form);
+}
+
+/**
+ * Provide some validation of the module settings form
+ */
+function imis_auth_admin_form_validate($form, &$form_state) {
+
+  $host = $form_state['values']['imis_auth_host'];
+  $parsedurl = parse_url($host);
+  $scheme = $parsedurl['scheme'];
+  if (!$scheme){
+    form_set_error('imis_auth_host', t('Missing url scheme. Include http:// or https:// as part of the url'));
+  }
+  if (($scheme != 'http') && ($scheme != 'https')){
+    form_set_error('imis_auth_host', t('Invalid url scheme. Must be one of http or https'));
+  }
+
 }
 
 /**
@@ -104,29 +129,26 @@ function imis_auth_settings() {
  *
  * Change the normal form login form behavior.
  *
- * @ingroup form
  */
 function imis_auth_form_alter(&$form, &$form_state, $form_id) {
+
+  // Replace the drupal authenticate function is it's used as validation.
+  if (isset($form['#validate']) && is_array($form['#validate']) && ($key = array_search('user_login_authenticate_validate', $form['#validate'])))
+    $form['#validate'][$key] = 'imis_auth_login_validate';
+
   switch ($form_id) {
     case 'user_login':
+    case 'user_login_block':
       // Login form extra info
       $msg = variable_get('imis_auth_message', '');
       if ($msg) {
         $form['member-auth'] = array(
-          '#value'  => $msg,
+          '#value'  => filter_xss_admin($msg),
           '#prefix' => '<div>',
           '#suffix' => '</div>',
           '#weight' => -10,
         );
       }
-
-      // Reset the validate and submit functions
-      $form['#validate'][] = 'imis_auth_login_validate';
-      break;
-
-    case 'user_login_block':
-      // Reset the validate and submit functions
-      $form['#validate'][] = 'imis_auth_login_validate';
       break;
 
   }
@@ -153,8 +175,6 @@ function imis_auth_textarea_to_array($var_name) {
 
 /**
  * Validate the user based on another Drupal site
- *
- * @ingroup $form
  */
 function imis_auth_login_validate($form, &$form_state) {
   // Get the name and password fields from the form
@@ -167,23 +187,27 @@ function imis_auth_login_validate($form, &$form_state) {
   if (isset($account->uid)) {
     // Find out if the user is in the list of exempt users
     $list = imis_auth_textarea_to_array('imis_auth_exempt');
-    if (!in_array(1, $list)) {
       // Check if uid 1 is in the list
+    if (!in_array(1, $list)) {
+      //if not add it to the list to ensure site admin uses normal authentication
       $list[] = 1;
     }
     foreach ($list as $key => $uid) {
       if ($uid == $account->uid) {
-        // This is the site admin, don't use external authentication, but normal authentication
+        // This is the site admin or another user on the list,
+        // we just do normal authentication and return (skipping external authentication)
         user_authenticate(array('name' => $name, 'pass' => $pass));
         return;
       }
     }
   }
 
-  // Check if the user is in the member database
+  // Attempt remote authentication
   $ret = imis_auth_webservice($name, $pass);
   if (!$ret['result']) {
     // User does not have a valid name/pass in the imis_members table
+    // @TODO sort through the error messages we're willing to display and those we aren't
+    // e.g. if error number is negative its a local configuration error say the module is incorrectly configured and tell admin to check the log
     form_set_error('name', $ret['message']);
     return;
   }
@@ -204,16 +228,20 @@ function imis_auth_login_validate($form, &$form_state) {
 
     // Remote login is valid
     $uid = db_result(db_query("SELECT uid FROM {imis_members} WHERE member_id = %d", $ret['id']));
+    //if the remote uid exists in our database do a check to see if it matches the user we loaded earlier
     if ($uid != 0 && $uid == $account->uid) {
-      // User already exists in Drupal, so we make them logged in
-      global $user;
-      $user = $account;
+      // appears to be a valid existing user
+      // do additional user system checks before fully granting access.
+      if (user_external_login($account)){
+        //provide some feedback to the user
+        drupal_set_message(t('Welcome %username', array('%username' => $account->name)));
+      }
       return;
     }
     else {
-      // User is in the table, save a Drupal user out of it.
-      // We do not call user_external_login_register() because it assumes the "regular" way of Drupal
-      // user registration, i.e. generate a random password, ...etc. We don't want that workflow.
+      // Create a new local user.  We do not call user_external_login_register()
+      // because it assumes the "regular" way of Drupal user registration,
+      // i.e. generate a random password, ...etc. We don't want that workflow.
       imis_auth_user_save($name, $pass, $ret['id']);
     }
   }
@@ -246,7 +274,7 @@ function imis_auth_user_save($name, $pass, $member_id) {
   // Save it to the user table
   $account = user_save('', $userinfo);
 
-  // Save the info from
+  // Save the remote user id
   db_query("DELETE FROM {imis_members} WHERE member_id = %d", $member_id);
   db_query("INSERT INTO {imis_members} (member_id, uid) VALUES (%d, %d)", $member_id, $account->uid);
 
@@ -289,9 +317,6 @@ function imis_auth_webservice($name = '', $pass = '') {
 
   // Post to the host
   $result = drupal_http_request($url, $headers, 'POST', http_build_query($data, '', '&'));
-
-//  print_r($data);
-//  die();
 
   if ($result->code != 200) {
     // Request not successful
@@ -373,4 +398,11 @@ function imis_auth_user($op, &$edit, &$account, $category = NULL) {
       db_query("DELETE FROM {imis_members} WHERE uid = %d", $account->uid);
       break;
   }
+}
+
+/**
+ * Implementation of hook_perm
+ */
+function imis_auth_perm() {
+  return array('administer iMIS authentication settings');
 }
