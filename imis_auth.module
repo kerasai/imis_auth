@@ -7,7 +7,7 @@
 function imis_auth_menu() {
   $items = array();
 
-  $items['admin/settings/imis_auth'] = array(
+  $items['admin/user/imis_auth'] = array(
     'title'             => 'iMIS Member authentication',
     'page callback'    => 'drupal_get_form',
     'page arguments'   => array('imis_auth_settings'),
@@ -63,6 +63,17 @@ function imis_auth_settings() {
     '#required' => TRUE,
   );
 
+  $form['imis_auth_disable_forgot_password'] = array(
+    '#type'          => 'checkbox',
+    '#title'         => t('Disable "request new password" links on login forms'),
+    '#default_value' => variable_get('imis_auth_disable_forgot_password', 1),
+    '#description'   => t('Selecting this option disables the "request new password" links on login forms. These links normally take users
+                           to the Drupal reset password pages. Passwords are managed by the remote iMIS authentication server. Resetting
+                           the Drupal password does NOT reset the iMIS user password.  Disabling these links is recommended.  Users that are
+                           exempt from iMIS authentication can still reset their password on their profile pages, or have an administrator reset
+                           the password for them')
+  );
+
   $form['imis_auth_message'] = array(
     '#type'          => 'textarea',
     '#title'         => t('Login notice'),
@@ -74,7 +85,16 @@ function imis_auth_settings() {
     '#type'          => 'textarea',
     '#title'         => t('Exempt users'),
     '#default_value' => variable_get('imis_auth_exempt', ''),
-    '#description'   => t('List of Drupal User IDs on this site to exempt from iMIS authentication. Enter one uid per line. These users will login using their Drupal credentials, and can have roles in addition to "authenticated user".'),
+    '#description'   => t('List of Drupal User IDs on this site to exempt from iMIS authentication.
+                           Enter one user ID per line. These users will login using their Drupal credentials,
+                           and can have roles in addition to "authenticated user".  The user ID of a user can be
+                           determined by visiting !link and clicking on the "edit" link for each user.  The user ID will
+                           then be visible in the URL in the format /user/##/edit where ## is the user ID.', array('!link' => l(t('admin/user/user'), 'admin/user/user'))),
+  );
+
+  $form['imis_auth_exmpt_list'] = array(
+    '#prefix' => t('Currently exempt users'),
+    '#value' => imis_auth_exempt_list(imis_auth_textarea_to_array('imis_auth_exempt')),
   );
 
   $form['vars'] = array(
@@ -102,9 +122,24 @@ function imis_auth_settings() {
     );
   }
 
-  $form['#validate'][] = 'imis_auth_admin_form_validate';
+  $form = system_settings_form($form);
 
-  return system_settings_form($form);
+  $form['#validate'][] = 'imis_auth_admin_form_validate';
+  $form['#submit'][] = 'imis_auth_admin_form_submit';
+
+  return $form;
+}
+
+function imis_auth_exempt_list($list) {
+  $header = array(t('User ID'), t('User Name'), t('Email Address'));
+  foreach($list as $uid) {
+    $user = user_load(array('uid' => $uid));
+    $name = l($user->name, 'user/'. $user->uid);
+    $email = l($user->mail, 'mailto:'. $user->mail);
+    $rows[] = array($user->uid, $name, $email);
+  }
+  $output = theme('table', $header, $rows);// go through the list and mark it up in a table or something for display.
+  return $output;
 }
 
 /**
@@ -122,6 +157,14 @@ function imis_auth_admin_form_validate($form, &$form_state) {
     form_set_error('imis_auth_host', t('Invalid url scheme. Must be one of http or https'));
   }
 
+}
+
+function imis_auth_admin_form_submit($form) {
+  //since there is an option to alter a menu (by disabling a local menu task)
+  //we need to rebuilt the menu if that setting is changed
+  if ($form['imis_auth_disable_forgot_password']['#value'] != $form['imis_auth_disable_forgot_password']['#default_value']) {
+    menu_rebuild();
+  }
 }
 
 /**
@@ -148,6 +191,10 @@ function imis_auth_form_alter(&$form, &$form_state, $form_id) {
           '#suffix' => '</div>',
           '#weight' => -10,
         );
+      }
+      $disable_links = variable_get('imis_auth_disable_forgot_password', 0);
+      if ($disable_links) {
+        $form['links'] = NULL;
       }
       break;
 
@@ -405,4 +452,16 @@ function imis_auth_user($op, &$edit, &$account, $category = NULL) {
  */
 function imis_auth_perm() {
   return array('administer iMIS authentication settings');
+}
+
+/**
+ * Implementation of hook menu alter
+ *
+ * Disable 'request new password' local menu
+ */
+function imis_auth_menu_alter(&$items) {
+  $disable_links = variable_get('imis_auth_disable_forgot_password',0);
+  if ($disable_links) {
+    $items['user/password']['access callback'] = FALSE;
+  }
 }
