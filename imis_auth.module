@@ -1,4 +1,5 @@
 <?php
+
 // $Id$
 
 /**
@@ -279,10 +280,27 @@ function imis_auth_login_validate($form, &$form_state) {
     if ($uid != 0 && $uid == $account->uid) {
       // appears to be a valid existing user
       // do additional user system checks before fully granting access.
-      if (user_external_login($account)){
-        //provide some feedback to the user
-        drupal_set_message(t('Welcome %username', array('%username' => $account->name)));
+
+      //for some reason if the login form is submitted from a block calling
+      //user_external_login will work to do the additional validation of the user
+      //however, if the form is submitted from /user/login
+      //user_external_login will go into an infinite loop as it re-loads the login form
+      //As a work around - we do the same checks from that function here.
+
+      // Check if user is blocked or denied by access rules.
+      user_login_name_validate($form, $state, (array)$account);
+      if (form_get_errors()) {
+        // Invalid login.
+        return;
       }
+      // Valid login.
+      global $user;
+      $user = $account;
+
+      //provide some feedback for the user
+        drupal_set_message(t('Welcome %username', array('%username' => $account->name)));
+      
+      user_authenticate_finalize($state['values']);
       return;
     }
     else {
@@ -290,6 +308,7 @@ function imis_auth_login_validate($form, &$form_state) {
       // because it assumes the "regular" way of Drupal user registration,
       // i.e. generate a random password, ...etc. We don't want that workflow.
       imis_auth_user_save($name, $pass, $ret['id']);
+      return;
     }
   }
 }
