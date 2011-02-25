@@ -1,4 +1,3 @@
-; $Id$
 name = iMIS Authentication
 description = Users login to the site and access content using their member's web login and password, using iMIS authentication.
 core = 6.x
