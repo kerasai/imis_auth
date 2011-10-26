@@ -52,6 +52,27 @@ function imis_members_schema() {
         'default' => 0,
         'description' => 'The {user}.uid associated with the iMIS member.',
       ),
+      'customer_type' => array(
+        'type' => 'varchar',
+        'length' => 255, 
+        'not null' => TRUE, 
+        'default' => '', 
+        'description' => 'The customer type code of the iMIS member.',
+      ),
+      'paid_thru_date' => array(
+        'type' => 'varchar',
+        'length' => 255, 
+        'not null' => TRUE, 
+        'default' => '', 
+        'description' => 'The paid thru date of the iMIS member.',
+      ),
+      'full_name' => array(
+        'type' => 'varchar',
+        'length' => 255, 
+        'not null' => TRUE, 
+        'default' => '', 
+        'description' => 'The full name of the iMIS member.',
+      ),
     ),
     'primary key' => array('member_id'),
     'unique_keys' => array(
@@ -63,4 +84,36 @@ function imis_members_schema() {
   );
 
   return $schema;
+}
+
+function imis_auth_update_6001() {
+  $ret = array();
+  db_add_field($ret, 'imis_members', 'customer_type', array(
+      'type' => 'varchar',
+      'length' => 255, 
+      'not null' => TRUE, 
+      'default' => '', 
+      'description' => 'The customer type code of the iMIS member.',
+    )
+  );
+  
+  db_add_field($ret, 'imis_members', 'paid_thru_date', array(
+      'type' => 'varchar',
+      'length' => 255, 
+      'not null' => TRUE, 
+      'default' => '', 
+      'description' => 'The paid thru date of the iMIS member.',
+    )
+  );
+  
+  db_add_field($ret, 'imis_members', 'full_name', array(
+      'type' => 'varchar',
+      'length' => 255, 
+      'not null' => TRUE, 
+      'default' => '', 
+      'description' => 'The full name of the iMIS member.',
+    )
+  );
+  
+  return $ret;
 }

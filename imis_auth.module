@@ -1,6 +1,5 @@
 <?php
 
-
 /**
  * Implementation of hook_menu().
  */
@@ -79,6 +78,23 @@ function imis_auth_settings() {
     '#title'         => t('Login notice'),
     '#default_value' => variable_get('imis_auth_message', ''),
     '#description'   => t('You can include a note that will apear below the login form and the login block to notify users that they can authenticate using iMIS credentials.'),
+  );
+  
+  $form['imis_auth_email_message'] = array(
+    '#type'          => 'textarea',
+    '#title'         => t('Email notice'),
+    '#default_value' => variable_get('imis_auth_email_message', ''),
+    '#description'   => t('You can include a notice that will appear below the email address when editing a user account to inform the user 
+                           how to change their email address on the iMIS database.'),
+  );
+  
+  $form['imis_auth_email_changed_message'] = array(
+    '#type'          => 'textarea',
+    '#title'         => t('Email changed notice'),
+    '#default_value' => variable_get('imis_auth_email_changed_message', ''),
+    '#description'   => t('Configure an information message to display when a change of email address is detected. This message informs the 
+                           user that their new email address has been registered in Drupal and can be used to advise them of any impacts this 
+                           may have on their Drupal account (e.g. email-based services).'),
   );
 
   $form['imis_auth_exempt'] = array(
@@ -197,7 +213,22 @@ function imis_auth_form_alter(&$form, &$form_state, $form_id) {
         $form['links'] = NULL;
       }
       break;
-
+    case 'user_profile_form':
+      // Prevent non-exempt users from updating account details
+      global $user;
+      $list = imis_auth_textarea_to_array('imis_auth_exempt');
+      if ($user->uid != 1 && !in_array($user->uid, $list)) {
+        $form['account']['mail']['#access'] = FALSE;
+        $form['account']['pass']['#access'] = FALSE;
+        $form['account']['mail_display'] = array(
+          '#type' => 'item',
+          '#title' => t('E-mail address'),
+          '#value' => $form['account']['mail']['#default_value'],
+          '#description' => variable_get('imis_auth_email_message', ''),
+          '#weight' => -1,
+        );
+      }
+      break;
   }
 }
 
@@ -296,9 +327,25 @@ function imis_auth_login_validate($form, &$form_state) {
       global $user;
       $user = $account;
 
-      //provide some feedback for the user
-        drupal_set_message(t('Welcome %username', array('%username' => $account->name)));
+      // Check email address from iMIS vs. email address in Drupal. If the Drupal email address is empty, update it
+      // using the email address from iMIS. If the email address from iMIS does not match the email address in Drupal,
+      // display a message to the user about the email address change. If the email addresses from both systems match, 
+      // take no additional action and proceed with finalizing the login.
+
+      if ($user->mail != $ret['mail']) {
+        $msg = variable_get('imis_auth_email_changed_message', '');
+        if ($msg) {
+          drupal_set_message(filter_xss($msg));
+        }
+      }
       
+      $user->mail = $ret['mail'];
+      db_query("UPDATE {users} SET mail = '%s' WHERE uid = %d", $ret['mail'], $user->uid);
+      db_query("UPDATE {imis_members} SET customer_type = '%s', paid_thru_date = '%s', full_name = '%s' WHERE member_id = %d", $ret['customer_type'], $ret['paid_thru_date'], $ret['full_name'], $ret['id']);
+      
+      //provide some feedback for the user
+      drupal_set_message(t('Welcome %username', array('%username' => $account->name)));
+
       user_authenticate_finalize($state['values']);
       return;
     }
@@ -306,7 +353,7 @@ function imis_auth_login_validate($form, &$form_state) {
       // Create a new local user.  We do not call user_external_login_register()
       // because it assumes the "regular" way of Drupal user registration,
       // i.e. generate a random password, ...etc. We don't want that workflow.
-      imis_auth_user_save($name, $pass, $ret['id']);
+      imis_auth_user_save($name, $pass, $ret['id'], $ret['mail'], $ret);
       return;
     }
   }
@@ -323,7 +370,7 @@ function imis_auth_check_values($key, $values = array()) {
 /**
  * Save the user data to the Drupal user's table
  */
-function imis_auth_user_save($name, $pass, $member_id) {
+function imis_auth_user_save($name, $pass, $member_id, $mail, $data) {
   global $user;
 
   // Create a user array from the data
@@ -331,6 +378,7 @@ function imis_auth_user_save($name, $pass, $member_id) {
   $userinfo = array(
     'name'             => $name,
     'pass'             => md5($pass),
+    'mail'             => $mail,
     'init'             => $name,
     'status'           => 1,
     'access'           => time(),
@@ -341,7 +389,7 @@ function imis_auth_user_save($name, $pass, $member_id) {
 
   // Save the remote user id
   db_query("DELETE FROM {imis_members} WHERE member_id = %d", $member_id);
-  db_query("INSERT INTO {imis_members} (member_id, uid) VALUES (%d, %d)", $member_id, $account->uid);
+  db_query("INSERT INTO {imis_members} (member_id, uid, customer_type, paid_thru_date, full_name) VALUES (%d, %d, '%s', '%s', '%s')", $member_id, $account->uid, $data['customer_type'], $data['paid_thru_date'], $data['full_name']);
 
   // Set the global variable
   $user = $account;
@@ -408,8 +456,10 @@ function imis_auth_webservice($name = '', $pass = '') {
   $is_member        = imis_auth_parse_xml($login_results, '<IsMember>');
   $customer_type    = imis_auth_parse_xml($login_results, '<CustomerTypeCode>');
   $contact_status   = imis_auth_parse_xml($login_results, '<ContactStatusCode>');
+  $paid_thru_date   = imis_auth_parse_xml($login_results, '<PaidThruDate>');
+  $full_name        = imis_auth_parse_xml($login_results, '<FullName>');
   $billing_category = imis_auth_parse_xml($login_results, '<BillingCategory>');
-
+  $mail             = imis_auth_parse_xml($login_results, '<Email>');
 
   if (!is_numeric($id)) {
     // No numeric ID returned, so return an error
@@ -427,7 +477,10 @@ function imis_auth_webservice($name = '', $pass = '') {
     'is_member'        => $is_member,
     'customer_type'    => $customer_type,
     'contact_status'   => $contact_status,
+    'paid_thru_date'   => $paid_thru_date,
+    'full_name'        => $full_name,
     'billing_category' => $billing_category,
+    'mail'            => $mail,
     );
 }
 
@@ -461,6 +514,44 @@ function imis_auth_user($op, &$edit, &$account, $category = NULL) {
   switch ($op) {
     case 'delete':
       db_query("DELETE FROM {imis_members} WHERE uid = %d", $account->uid);
+      break;
+    case 'view':
+      $list = imis_auth_textarea_to_array('imis_auth_exempt');
+      if ($account->uid != 1 && !in_array($account->uid, $list)) {
+        $result = db_query("SELECT * FROM {imis_members} WHERE uid = %d LIMIT 1", $account->uid);
+        if ($imis_data = db_fetch_array($result)) {
+          $account->content['membership_info'] = array(
+            '#type' => 'user_profile_category',
+            '#attributes' => array('class' => 'user-member'),
+            '#weight' => -1,
+            '#title' => t('Membership Information'),
+          );
+          $account->content['membership_info']['id'] = array(
+            '#type' => 'user_profile_item',
+            '#title' => t('ID'),
+            '#value' => $imis_data['member_id'],
+            '#weight' => 0,
+          );
+          $account->content['membership_info']['full_name'] = array(
+            '#type' => 'user_profile_item',
+            '#title' => t('Member Name'),
+            '#value' => $imis_data['full_name'],
+            '#weight' => 1,
+          );
+          $account->content['membership_info']['customer_type'] = array(
+            '#type' => 'user_profile_item',
+            '#title' => t('Member Type'),
+            '#value' => $imis_data['customer_type'],
+            '#weight' => 2,
+          );
+          $account->content['membership_info']['paid_thru_date'] = array(
+            '#type' => 'user_profile_item',
+            '#title' => t('Expiry Date'),
+            '#value' => format_date(strtotime($imis_data['paid_thru_date']), 'custom', 'Y-m-d'),
+            '#weight' => 3,
+          );
+        }
+      }
       break;
   }
 }
