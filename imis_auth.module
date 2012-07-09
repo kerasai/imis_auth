@@ -1,12 +1,12 @@
 <?php
 
 /**
- * Implementation of hook_menu().
+ * Implements hook_menu().
  */
 function imis_auth_menu() {
   $items = array();
 
-  $items['admin/user/imis_auth'] = array(
+  $items['admin/people/imis_auth'] = array(
     'title'             => 'iMIS Member authentication',
     'page callback'    => 'drupal_get_form',
     'page arguments'   => array('imis_auth_settings'),
@@ -105,12 +105,12 @@ function imis_auth_settings() {
                            Enter one user ID per line. These users will login using their Drupal credentials,
                            and can have roles in addition to "authenticated user".  The user ID of a user can be
                            determined by visiting !link and clicking on the "edit" link for each user.  The user ID will
-                           then be visible in the URL in the format /user/##/edit where ## is the user ID.', array('!link' => l(t('admin/user/user'), 'admin/user/user'))),
+                           then be visible in the URL in the format /user/##/edit where ## is the user ID.', array('!link' => l(t('admin/people'), 'admin/people'))),
   );
 
   $form['imis_auth_exmpt_list'] = array(
     '#prefix' => t('Currently exempt users'),
-    '#value' => imis_auth_exempt_list(imis_auth_textarea_to_array('imis_auth_exempt')),
+    '#markup' => imis_auth_exempt_list(imis_auth_textarea_to_array('imis_auth_exempt')),
   );
 
   $form['vars'] = array(
@@ -149,12 +149,12 @@ function imis_auth_settings() {
 function imis_auth_exempt_list($list) {
   $header = array(t('User ID'), t('User Name'), t('Email Address'));
   foreach($list as $uid) {
-    $user = user_load(array('uid' => $uid));
+    $user = user_load($uid);
     $name = l($user->name, 'user/'. $user->uid);
     $email = l($user->mail, 'mailto:'. $user->mail);
     $rows[] = array($user->uid, $name, $email);
   }
-  $output = theme('table', $header, $rows);// go through the list and mark it up in a table or something for display.
+  $output = theme('table', array('header' => $header, 'rows' => $rows));// go through the list and mark it up in a table or something for display.
   return $output;
 }
 
@@ -175,7 +175,7 @@ function imis_auth_admin_form_validate($form, &$form_state) {
 
 }
 
-function imis_auth_admin_form_submit($form) {
+function imis_auth_admin_form_submit($form, &$form_state) {
   //since there is an option to alter a menu (by disabling a local menu task)
   //we need to rebuilt the menu if that setting is changed
   if ($form['imis_auth_disable_forgot_password']['#value'] != $form['imis_auth_disable_forgot_password']['#default_value']) {
@@ -184,7 +184,7 @@ function imis_auth_admin_form_submit($form) {
 }
 
 /**
- * Implementation of hook_form_alter().
+ * Implements hook_form_alter().
  *
  * Change the normal form login form behavior.
  *
@@ -202,7 +202,7 @@ function imis_auth_form_alter(&$form, &$form_state, $form_id) {
       $msg = variable_get('imis_auth_message', '');
       if ($msg) {
         $form['member-auth'] = array(
-          '#value'  => filter_xss_admin($msg),
+          '#markup'  => filter_xss_admin($msg),
           '#prefix' => '<div>',
           '#suffix' => '</div>',
           '#weight' => -10,
@@ -218,15 +218,18 @@ function imis_auth_form_alter(&$form, &$form_state, $form_id) {
       global $user;
       $list = imis_auth_textarea_to_array('imis_auth_exempt');
       if ($user->uid != 1 && !in_array($user->uid, $list)) {
-        $form['account']['mail']['#access'] = FALSE;
         $form['account']['pass']['#access'] = FALSE;
-        $form['account']['mail_display'] = array(
-          '#type' => 'item',
-          '#title' => t('E-mail address'),
-          '#value' => $form['account']['mail']['#default_value'],
-          '#description' => variable_get('imis_auth_email_message', ''),
-          '#weight' => -1,
+        $form['account']['mail']['#description'] = $form['account']['mail']['#description'] . ' ' . t("This will not update your iMIS account's email address.");
+        if (!empty($user->mail)) {
+          $form['account']['mail']['#access'] = FALSE;
+          $form['account']['mail_display'] = array(
+            '#type' => 'item',
+            '#title' => t('E-mail address'),
+            '#markup' => $form['account']['mail']['#default_value'],
+            '#description' => variable_get('imis_auth_email_message', ''),
+            '#weight' => -1,
         );
+        }
       }
       break;
   }
@@ -261,7 +264,7 @@ function imis_auth_login_validate($form, &$form_state) {
   $pass = $form_state['values']['pass'];
 
   // Check if the account already exists or its a new user
-  $account = user_load(array('name' => $name));
+  $account = user_load_by_name($name);
   if (isset($account->uid)) {
     // Find out if the user is in the list of exempt users
     $list = imis_auth_textarea_to_array('imis_auth_exempt');
@@ -274,7 +277,8 @@ function imis_auth_login_validate($form, &$form_state) {
       if ($uid == $account->uid) {
         // This is the site admin or another user on the list,
         // we just do normal authentication and return (skipping external authentication)
-        user_authenticate(array('name' => $name, 'pass' => $pass));
+        $uid = user_authenticate($name, $pass);
+        $form_state['uid'] = $uid;
         return;
       }
     }
@@ -303,11 +307,10 @@ function imis_auth_login_validate($form, &$form_state) {
         }
       }
     }
-
     // Remote login is valid
-    $uid = db_result(db_query("SELECT uid FROM {imis_members} WHERE member_id = %d", $ret['id']));
+    $uid = db_query("SELECT uid FROM {imis_members} WHERE member_id = :id", array(':id' => $ret['id']))->fetchField();
     //if the remote uid exists in our database do a check to see if it matches the user we loaded earlier
-    if ($uid != 0 && $uid == $account->uid) {
+    if ($uid && $uid == $account->uid) {
       // appears to be a valid existing user
       // do additional user system checks before fully granting access.
 
@@ -318,7 +321,8 @@ function imis_auth_login_validate($form, &$form_state) {
       //As a work around - we do the same checks from that function here.
 
       // Check if user is blocked or denied by access rules.
-      user_login_name_validate($form, $state, (array)$account);
+      $form_state['uid'] = $uid;
+      user_login_name_validate($form, $form_state);
       if (form_get_errors()) {
         // Invalid login.
         return;
@@ -332,28 +336,34 @@ function imis_auth_login_validate($form, &$form_state) {
       // display a message to the user about the email address change. If the email addresses from both systems match, 
       // take no additional action and proceed with finalizing the login.
 
-      if ($user->mail != $ret['mail']) {
+      if (!empty($ret['mail']) && $user->mail != $ret['mail']) {
         $msg = variable_get('imis_auth_email_changed_message', '');
         if ($msg) {
           drupal_set_message(filter_xss($msg));
         }
+        $user->mail = $ret['mail'];
+        db_update('users')->fields(array('mail' => $ret['mail']))->condition('uid', $user->uid)->execute();
       }
       
-      $user->mail = $ret['mail'];
-      db_query("UPDATE {users} SET mail = '%s' WHERE uid = %d", $ret['mail'], $user->uid);
-      db_query("UPDATE {imis_members} SET customer_type = '%s', paid_thru_date = '%s', full_name = '%s' WHERE member_id = %d", $ret['customer_type'], $ret['paid_thru_date'], $ret['full_name'], $ret['id']);
+      db_update('imis_members')
+        ->fields(array(
+          'customer_type' => $ret['customer_type'],
+          'paid_thru_date' => $ret['paid_thru_date'],
+          'full_name' => $ret['full_name'],
+        ))
+        ->condition('member_id', $ret['id'])
+        ->execute();
       
       //provide some feedback for the user
       drupal_set_message(t('Welcome %username', array('%username' => $account->name)));
-
-      user_authenticate_finalize($state['values']);
       return;
     }
     else {
       // Create a new local user.  We do not call user_external_login_register()
       // because it assumes the "regular" way of Drupal user registration,
       // i.e. generate a random password, ...etc. We don't want that workflow.
-      imis_auth_user_save($name, $pass, $ret['id'], $ret['mail'], $ret);
+      $uid = imis_auth_user_save($name, $pass, $ret['id'], $ret['mail'], $ret);
+      $form_state['uid'] = $uid;
       return;
     }
   }
@@ -377,7 +387,7 @@ function imis_auth_user_save($name, $pass, $member_id, $mail, $data) {
   $module = 'imis_auth';
   $userinfo = array(
     'name'             => $name,
-    'pass'             => md5($pass),
+    'pass'             => $pass,
     'mail'             => $mail,
     'init'             => $name,
     'status'           => 1,
@@ -385,17 +395,26 @@ function imis_auth_user_save($name, $pass, $member_id, $mail, $data) {
     "authname_$module" => $name,
   );
   // Save it to the user table
-  $account = user_save('', $userinfo);
+  $account = user_save(NULL, $userinfo);
 
   // Save the remote user id
-  db_query("DELETE FROM {imis_members} WHERE member_id = %d", $member_id);
-  db_query("INSERT INTO {imis_members} (member_id, uid, customer_type, paid_thru_date, full_name) VALUES (%d, %d, '%s', '%s', '%s')", $member_id, $account->uid, $data['customer_type'], $data['paid_thru_date'], $data['full_name']);
+  db_delete('imis_members')->condition('member_id', $member_id)->execute();
+  db_insert('imis_members')
+    ->fields(array(
+      'member_id' => $member_id,
+      'uid' => $account->uid,
+      'customer_type' => $data['customer_type'],
+      'paid_thru_date' => $data['paid_thru_date'],
+      'full_name' => $data['full_name'],
+    ))
+    ->execute();
 
   // Set the global variable
   $user = $account;
 
   // Log this information
   watchdog('user', 'New member: %name via %module.', array('%name' => $name, '%module' => $module), WATCHDOG_NOTICE, l(t('edit'), 'user/'. $user->uid .'/edit'));
+  return $user->uid;
 }
 
 /**
@@ -429,7 +448,7 @@ function imis_auth_webservice($name = '', $pass = '') {
   );
 
   // Post to the host
-  $result = drupal_http_request($url, $headers, 'POST', http_build_query($data, '', '&'));
+  $result = drupal_http_request($url, array('headers' => $headers, 'method' => 'POST', 'data' => drupal_http_build_query($data)));
 
   if ($result->code != 200) {
     // Request not successful
@@ -446,125 +465,110 @@ function imis_auth_webservice($name = '', $pass = '') {
       );
   }
 
-  // Parse the XML
-  $login_results  = imis_auth_parse_xml($result->data, '<LoginResults>');
+  $parsed_data = imis_auth_parse_xml($result->data);
 
-  // Get the values
-  $code             = imis_auth_parse_xml($login_results, '<ResultCode>');
-  $msg              = imis_auth_parse_xml($login_results, '<ResultMessage>');
-  $id               = imis_auth_parse_xml($login_results, '<ID>');
-  $is_member        = imis_auth_parse_xml($login_results, '<IsMember>');
-  $customer_type    = imis_auth_parse_xml($login_results, '<CustomerTypeCode>');
-  $contact_status   = imis_auth_parse_xml($login_results, '<ContactStatusCode>');
-  $paid_thru_date   = imis_auth_parse_xml($login_results, '<PaidThruDate>');
-  $full_name        = imis_auth_parse_xml($login_results, '<FullName>');
-  $billing_category = imis_auth_parse_xml($login_results, '<BillingCategory>');
-  $mail             = imis_auth_parse_xml($login_results, '<Email>');
-
-  if (!is_numeric($id)) {
+  if (!is_numeric($parsed_data['id'])) {
     // No numeric ID returned, so return an error
     return array(
       'result'  => FALSE,
-      'message' => $msg,
+      'message' => $parsed_data['message'],
       );
   }
 
-  return array(
-    // We are successful, return the ID and the message
-    'result'           => TRUE,
-    'id'               => $id,
-    'message'          => $msg,
-    'is_member'        => $is_member,
-    'customer_type'    => $customer_type,
-    'contact_status'   => $contact_status,
-    'paid_thru_date'   => $paid_thru_date,
-    'full_name'        => $full_name,
-    'billing_category' => $billing_category,
-    'mail'            => $mail,
-    );
+  return $parsed_data;
 }
 
 /**
  * A simple xml parsing function.
  *
  * @param  $xml        A text string that contains the xml to be parsed.
- * @param  $open_tag   The opening xml tag to search for.
- * @return string      The string between $open_tag and its close tag.
+ * @return array       An array of the resulting authentication.
  */
-function imis_auth_parse_xml($xml, $open_tag) {
-  // Create an alternate empty tag, for example, instead of <blah>value</blah>
-  // it is in the form of <blah />
-  $empty_tag = substr($open_tag, 0, strpos($open_tag, '>'));
-  $empty_tag .= ' />';
-  if (strstr($xml, $empty_tag)) {
-    return '';
-  }
+function imis_auth_parse_xml($xml) {
+  $login_results = new SimpleXMLElement($xml);
 
-  // Check for normal <blah>value</blah> tags
-  $close_tag = '</'. substr($open_tag, 1, strlen($open_tag));
-  $pos1 = strpos($xml, $open_tag);
-  $pos2 = strpos($xml, $close_tag);
-  return trim(substr($xml, $pos1 + strlen($open_tag), $pos2 - ($pos1 + strlen($open_tag))));
+  return array(
+    // We are successful, return the ID and the message
+    'result'           => TRUE,
+    'id'               => (string) $login_results->ID,
+    'message'          => (string) $login_results->ResultMessage,
+    'is_member'        => (string) $login_results->IsMember,
+    'customer_type'    => (string) $login_results->CustomerTypeCode,
+    'contact_status'   => (string) $login_results->ContactStatusCode,
+    'paid_thru_date'   => (string) $login_results->PaidThruDate,
+    'full_name'        => (string) $login_results->FullName,
+    'billing_category' => (string) $login_results->BilligCategory,
+    'mail'             => (string) $login_results->Email,
+  );
 }
 
 /**
- * Implementation of hook_user().
+ * Implements hook_user_delete().
  */
-function imis_auth_user($op, &$edit, &$account, $category = NULL) {
-  switch ($op) {
-    case 'delete':
-      db_query("DELETE FROM {imis_members} WHERE uid = %d", $account->uid);
-      break;
-    case 'view':
-      $list = imis_auth_textarea_to_array('imis_auth_exempt');
-      if ($account->uid != 1 && !in_array($account->uid, $list)) {
-        $result = db_query("SELECT * FROM {imis_members} WHERE uid = %d LIMIT 1", $account->uid);
-        if ($imis_data = db_fetch_array($result)) {
-          $account->content['membership_info'] = array(
-            '#type' => 'user_profile_category',
-            '#attributes' => array('class' => 'user-member'),
-            '#weight' => -1,
-            '#title' => t('Membership Information'),
-          );
-          $account->content['membership_info']['id'] = array(
-            '#type' => 'user_profile_item',
-            '#title' => t('ID'),
-            '#value' => $imis_data['member_id'],
-            '#weight' => 0,
-          );
-          $account->content['membership_info']['full_name'] = array(
-            '#type' => 'user_profile_item',
-            '#title' => t('Member Name'),
-            '#value' => $imis_data['full_name'],
-            '#weight' => 1,
-          );
-          $account->content['membership_info']['customer_type'] = array(
-            '#type' => 'user_profile_item',
-            '#title' => t('Member Type'),
-            '#value' => $imis_data['customer_type'],
-            '#weight' => 2,
-          );
-          $account->content['membership_info']['paid_thru_date'] = array(
-            '#type' => 'user_profile_item',
-            '#title' => t('Expiry Date'),
-            '#value' => format_date(strtotime($imis_data['paid_thru_date']), 'custom', 'Y-m-d'),
-            '#weight' => 3,
-          );
-        }
+function imis_auth_user_delete($account) {
+  db_delete('imis_members')->condition('uid', $account->uid)->execute();
+}
+
+/**
+ * Implements hook_user_view().
+ */
+function imis_auth_user_view($account, $view_mode, $langcode) {
+  $list = imis_auth_textarea_to_array('imis_auth_exempt');
+  if ($account->uid != 1 && !in_array($account->uid, $list)) {
+    $result = db_query("SELECT * FROM {imis_members} WHERE uid = :uid LIMIT 1", array(':uid' => $account->uid))->fetchAll();
+    $result = reset($result);
+    if ($result) {
+      $account->content['membership_info'] = array(
+        '#type' => 'user_profile_category',
+        '#attributes' => array('class' => 'user-member'),
+        '#weight' => -1,
+        '#title' => t('Membership Information'),
+      );
+      $account->content['membership_info']['id'] = array(
+        '#type' => 'user_profile_item',
+        '#title' => t('ID'),
+        '#markup' => $result->member_id,
+        '#weight' => 0,
+      );
+      $account->content['membership_info']['full_name'] = array(
+        '#type' => 'user_profile_item',
+        '#title' => t('Member Name'),
+        '#markup' => $result->full_name,
+        '#weight' => 1,
+      );
+      $account->content['membership_info']['customer_type'] = array(
+        '#type' => 'user_profile_item',
+        '#title' => t('Member Type'),
+        '#markup' => $result->customer_type,
+        '#weight' => 2,
+      );
+      // Special case for date since format_date() produces a notice when first 
+      // argument isn't a UNIX timestamp.
+      if (!empty($result->paid_thru_date)) {
+        $account->content['membership_info']['paid_thru_date'] = array(
+          '#type' => 'user_profile_item',
+          '#title' => t('Expiry Date'),
+          '#markup' => format_date(strtotime($result->paid_thru_date), 'custom', 'Y-m-d'),
+          '#weight' => 3,
+        );
       }
-      break;
+    }
   }
 }
 
 /**
- * Implementation of hook_perm
+ * Implements hook_permimission().
  */
-function imis_auth_perm() {
-  return array('administer iMIS authentication settings');
+function imis_auth_permission() {
+  return array(
+    'administer iMIS authentication settings' => array(
+      'title' => t('Administer iMIS authentication settings'),
+    ),
+  );
 }
 
 /**
- * Implementation of hook menu alter
+ * Implements hook_menu_alter().
  *
  * Disable 'request new password' local menu
  */

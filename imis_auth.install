@@ -6,24 +6,9 @@
 
 
 /**
- * Implementation of hook_install().
- */
-function imis_auth_install() {
-  // Create table. The imis_members table might have been created in the Drupal 5
-  // to Drupal 6 upgrade, so in this case, there is no need to create the
-  // table, it is already there.
-  if (!db_table_exists('imis_members')) {
-    drupal_install_schema('imis_members');
-  }
-}
-
-/**
  * Implementation of hook_uninstall().
  */
 function imis_auth_uninstall() {
-  // Remove tables
-  drupal_uninstall_schema('imis_members');
-
   // Delete variables
   variable_del('imis_auth_message');
   variable_del('imis_auth_host');
@@ -34,7 +19,7 @@ function imis_auth_uninstall() {
 /**
  * Implementation of hook_schema().
  */
-function imis_members_schema() {
+function imis_auth_schema() {
   $schema['imis_members'] = array(
     'description' => 'Stores iMIS/Drupal user ID pairs.',
     'fields' => array(
