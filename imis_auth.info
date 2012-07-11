@@ -1,3 +1,5 @@
 name = iMIS Authentication
 description = Users login to the site and access content using their member's web login and password, using iMIS authentication.
 core = 7.x
+configure = admin/people/imis_auth
+files[] = imis_auth.test

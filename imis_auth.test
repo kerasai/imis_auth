@@ -1,0 +1,97 @@
+<?php
+/**
+ * @file
+ * Tests for iMIS Authentication module.
+ */
+
+/**
+ * Tests for ATS/iMIS service.
+ */
+class ImisAuthTestCase extends DrupalWebTestCase {
+  // ATS/iMIS Testing Data located at http://www.atsol.org/demo/webservices/.
+  protected $name = 'MARCIE';
+  protected $password = 'M12345';
+  public $method = 'ValidateLogin';
+  public $host = 'http://demowebservices.atsol.org';
+  public $filename = 'loginwebservice.asmx';
+
+  public static function getInfo() {
+    return array(
+      'name' => 'ATS/iMIS User login',
+      'description' => 'Test login using ATS/iMIS Web Service',
+      'group' => 'iMIS Auth',
+    );
+  }
+
+  public function setUp() {
+    parent::SetUp('imis_auth');
+
+    // Set the module's configurations.
+    variable_set('imis_auth_host', $this->host);
+    variable_set('imis_auth_ws_filename', $this->filename);
+    variable_set('imis_auth_ws_method', $this->method);
+  }
+
+  /**
+   * Basic login features.
+   */
+  public function testImisAuthLogin() {
+    $edit = array(
+      'name' => $this->name,
+      'pass' => $this->password,
+    );
+    $this->drupalPost('user', $edit, t('Log in'));
+    // Successfully logged in.
+    $this->assertText(t('Member for'), 'User has successfully logged in.');
+    $this->drupalLogout();
+
+    // Try logging in again.
+    $this->drupalPost('user', $edit, t('Log in'));
+    // A returning user gets a welcome message.
+    $this->assertRaw(t('Welcome %username', array('%username' => $this->name)), 'Re-logging in with existing account successful.');
+    $this->drupalLogout();
+
+    // Attempt logging in with invalid data.
+    $edit['pass'] .= 'incorrect';
+    $this->drupalPost('user', $edit, t('Log in'));
+    $this->assertText(t('Unable to login as user !username. The User ID or Password is invalid.', array('!username' => $this->name)), 'Service returned a message specifying an account cannot be logged in.');
+
+    // Attempt to login an exempted user.
+    $exempted_user = $this->drupalCreateUser();
+    // Set config for empt list.
+    variable_set('imis_auth_exempt', $exempted_user->uid);
+    $edit = array(
+      'name' => $exempted_user->name,
+      'pass' => $exempted_user->pass_raw,
+    );
+    $this->drupalPost('user', $edit, t('Log in'));
+    $this->assertText(t('Member for'), 'Exempted user has successfully logged in.');
+  }
+
+  /**
+   * Simple test to check validation for imis_auth settings.
+   */
+  public function testImisAuthConfig() {
+    $administer_imis_auth_settings_user = $this->drupalCreateUser(array(
+      'access administration pages',
+      'administer iMIS authentication settings')
+    );
+    // Need to add the user to the exempted list to be able to login.
+    variable_set('imis_auth_exempt', $administer_imis_auth_settings_user->uid);
+    $this->drupalLogin($administer_imis_auth_settings_user);
+
+    $host = $this->host;
+    debug($host);
+    $url = substr($host, 7);
+    $edit = array(
+      'imis_auth_host' => $url,
+    );
+    $this->drupalPost('admin/people/imis_auth', $edit, t('Save configuration'));
+    $this->assertText(t('Missing url scheme.'), 'Configuration is not saved due to missing url scheme in host.');
+
+    $url = str_replace('http', 'ftp', $host);
+    $edit['imis_auth_host'] = $url;
+    $this->drupalPost('admin/people/imis_auth', $edit, t('Save configuration'));
+    $this->assertText(t('Invalid url scheme.'), 'Configuration is not saved due to an invalid url scheme in host.');
+  }
+}
