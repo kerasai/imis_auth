@@ -24,7 +24,7 @@ class ImisAuthTestCase extends DrupalWebTestCase {
   }
 
   public function setUp() {
-    parent::SetUp('imis_auth');
+    parent::setUp('imis_auth');
 
     // Set the module's configurations.
     variable_set('imis_auth_host', $this->host);
