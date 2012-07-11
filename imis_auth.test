@@ -58,7 +58,7 @@ class ImisAuthTestCase extends DrupalWebTestCase {
 
     // Attempt to login an exempted user.
     $exempted_user = $this->drupalCreateUser();
-    // Set config for empt list.
+    // Set config for exempted users list.
     variable_set('imis_auth_exempt', $exempted_user->uid);
     $edit = array(
       'name' => $exempted_user->name,
@@ -81,7 +81,6 @@ class ImisAuthTestCase extends DrupalWebTestCase {
     $this->drupalLogin($administer_imis_auth_settings_user);
 
     $host = $this->host;
-    debug($host);
     $url = substr($host, 7);
     $edit = array(
       'imis_auth_host' => $url,
