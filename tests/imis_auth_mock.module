@@ -1,0 +1,68 @@
+<?php
+
+define('MOCK_USERNAME', 'Drupal');
+define('MOCK_PASSWORD', 'Drupal');
+
+define('MOCK_VALIDATE', 'validate');
+define('MOCK_INVALIDATE', 'invalidate');
+
+/**
+ * Implements hook_menu().
+ */
+function imis_auth_mock_menu() {
+  return array(
+    'imis-auth-mock.xml' => array(
+      'page callback' => 'imis_auth_mock_server',
+      'access callback' => TRUE,
+      'type' => MENU_CALLBACK,
+    ),
+  );
+}
+
+/**
+ * Responds with appropriate xml format. $method doesn't really do much.
+ */
+function imis_auth_mock_server($method = 'ValidateLoginWithData') {
+  $skeleton = '<DrupalLoginResultsWithData />';
+  $xml = simplexml_load_string($skeleton);
+  $data = imis_auth_mock_retrieve_data();
+
+  if ($_POST['Username'] == MOCK_USERNAME && $_POST['Password'] == MOCK_PASSWORD) {
+    $xml->addChild('ResultCode', 0);
+    $xml->addChild('ResultMessage', 'Success');
+    $xml->addChild('ID', $data['id']);
+
+    if ($method == 'ValidateLoginWithData') {
+      // Some fixed data.
+      $xml->addChild('CustomerTypeCode', $data['customer_type']);
+      $xml->addChild('BillingCategory', $data['billing_category']);
+      $xml->addChild('ContactStatusCode', $data['contact_status']);
+      $xml->addChild('FullName', $data['full_name']);
+    }
+  }
+  else {
+    $xml->addChild('ResultCode', 1);
+    $xml->addChild('ResultMessage', 'Unable to login as user ' . $_POST['Username'] . '. The User ID or Password is invalid.');
+  }
+
+  $xml->addChild('IsMember', $data['is_member']);
+  $xml->addChild('PaidThruDate', format_date(time(), 'custom', 'c'));
+
+  drupal_add_http_header('Content-Type', 'text/xml');
+  print $xml->asXML();
+}
+
+/**
+ * Return the data for needed properties.
+ */
+function imis_auth_mock_retrieve_data() {
+  $data = array(
+    'id' => 1,
+    'is_member' => 'false',
+    'customer_type' => 'STAFF',
+    'billing_category' => 'PRODUCTS',
+    'contact_status' => 'A',
+    'full_name' => MOCK_USERNAME,
+  );
+  return $data;
+}

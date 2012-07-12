@@ -497,7 +497,7 @@ function imis_auth_parse_xml($xml) {
     'contact_status'   => (string) $login_results->ContactStatusCode,
     'paid_thru_date'   => (string) $login_results->PaidThruDate,
     'full_name'        => (string) $login_results->FullName,
-    'billing_category' => (string) $login_results->BilligCategory,
+    'billing_category' => (string) $login_results->BillingCategory,
     'mail'             => (string) $login_results->Email,
   );
 }

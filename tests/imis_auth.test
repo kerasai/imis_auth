@@ -9,11 +9,11 @@
  */
 class ImisAuthTestCase extends DrupalWebTestCase {
   // ATS/iMIS Testing Data located at http://www.atsol.org/demo/webservices/.
-  protected $name = 'MARCIE';
-  protected $password = 'M12345';
-  public $method = 'ValidateLogin';
-  public $host = 'http://demowebservices.atsol.org';
-  public $filename = 'loginwebservice.asmx';
+  protected $name;
+  protected $password;
+  public $method;
+  public $host;
+  public $filename;
 
   public static function getInfo() {
     return array(
@@ -24,7 +24,15 @@ class ImisAuthTestCase extends DrupalWebTestCase {
   }
 
   public function setUp() {
-    parent::setUp('imis_auth');
+    parent::setUp('imis_auth', 'imis_auth_mock');
+
+    // Set the properties so they are re-usable.
+    global $base_url;
+    $this->name = 'Drupal';
+    $this->password = 'Drupal';
+    $this->method = 'ValidateLoginWithData';
+    $this->host = $base_url;
+    $this->filename = 'imis-auth-mock.xml';
 
     // Set the module's configurations.
     variable_set('imis_auth_host', $this->host);
@@ -49,10 +57,9 @@ class ImisAuthTestCase extends DrupalWebTestCase {
     $this->drupalLogout();
 
     // Attempt logging in with invalid data.
-    $account->pass_raw .= 'incorrect';
     $edit = array(
       'name' => $account->name,
-      'pass' => $account->pass_raw,
+      'pass' => $account->pass_raw . 'incorrect',
     );
     $this->drupalPost('user', $edit, t('Log in'));
     $this->assertText(t('Unable to login as user !username. The User ID or Password is invalid.', array('!username' => $this->name)), 'Service returned a message specifying an account cannot be logged in.');
@@ -63,6 +70,24 @@ class ImisAuthTestCase extends DrupalWebTestCase {
     variable_set('imis_auth_exempt', $exempted_user->uid);
     $this->drupalLogin($exempted_user);
     $this->drupalLogout();
+
+    // Check each auth vars upon logging in.
+    $data = imis_auth_mock_retrieve_data();
+    $edit = array(
+      'name' => $account->name,
+      'pass' => $account->pass_raw,
+    );
+    foreach (imis_auth_vars() as $k => $v) {
+      // Emulate checking the checkbox for variable.
+      variable_set('imis_auth_var_' . $k, 1);
+      // Emulate entering data on the textarea for variable but with different 
+      // value.
+      variable_set('imis_auth_val_' . $k, $data[$k] . 'incorrect');
+
+      // Attempt logging in the user with outdated data.
+      $this->drupalPost('user', $edit, t('Log in'));
+      $this->assertText('Your login has been accepted but our records show that your membership is not up to date.', format_string("User is not able to login due to outdated data for @value.", array('@value' => $v)));
+    }
   }
 
   /**
@@ -78,7 +103,7 @@ class ImisAuthTestCase extends DrupalWebTestCase {
     $this->drupalLogin($administer_imis_auth_settings_user);
 
     $host = $this->host;
-    $url = substr($host, 7);
+    $url = str_replace('http://', '', $host);
     $edit = array(
       'imis_auth_host' => $url,
     );

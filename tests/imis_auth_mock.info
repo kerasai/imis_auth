@@ -1,0 +1,6 @@
+name = Mock Webservice for iMIS authentication
+description = Provide basic responses for iMIS authentication.
+core = 7.x
+hidden = TRUE
+dependencies[] = imis_auth
+dependencies[] = simpletest
