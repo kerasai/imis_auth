@@ -3,9 +3,6 @@
 define('MOCK_USERNAME', 'Drupal');
 define('MOCK_PASSWORD', 'Drupal');
 
-define('MOCK_VALIDATE', 'validate');
-define('MOCK_INVALIDATE', 'invalidate');
-
 /**
  * Implements hook_menu().
  */
