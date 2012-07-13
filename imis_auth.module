@@ -165,14 +165,15 @@ function imis_auth_admin_form_validate($form, &$form_state) {
 
   $host = $form_state['values']['imis_auth_host'];
   $parsedurl = parse_url($host);
-  $scheme = $parsedurl['scheme'];
-  if (!$scheme){
+  if (isset($parsedurl['scheme'])) {
+    $scheme = $parsedurl['scheme'];
+    if (($scheme != 'http') && ($scheme != 'https')){
+      form_set_error('imis_auth_host', t('Invalid url scheme. Must be one of http or https'));
+    }
+  }
+  else {
     form_set_error('imis_auth_host', t('Missing url scheme. Include http:// or https:// as part of the url'));
   }
-  if (($scheme != 'http') && ($scheme != 'https')){
-    form_set_error('imis_auth_host', t('Invalid url scheme. Must be one of http or https'));
-  }
-
 }
 
 function imis_auth_admin_form_submit($form, &$form_state) {

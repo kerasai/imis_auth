@@ -8,11 +8,11 @@
  * Tests for ATS/iMIS service.
  */
 class ImisAuthTestCase extends DrupalWebTestCase {
-  private $name = 'Drupal';
-  private $password = 'Drupal';
+  private $name;
+  private $password;
 
   private $method = 'ValidateLoginWithData';
-  private $filename 'imis-auth-mock-xml';
+  private $filename = 'imis-auth-mock.xml';
   private $host;
 
   public static function getInfo() {
@@ -26,9 +26,11 @@ class ImisAuthTestCase extends DrupalWebTestCase {
   public function setUp() {
     parent::setUp('imis_auth', 'imis_auth_mock');
 
-    // Set the host here to be able to grab $base_url.
+    // Set properties to be used among tests.
     global $base_url;
     $this->host = $base_url;
+    $this->name = variable_get('imis_auth_mock_username', 'Drupal');
+    $this->password = variable_get('imis_auth_mock_password', 'Drupal');
 
     // Set the module's configurations.
     variable_set('imis_auth_host', $this->host);
@@ -110,5 +112,21 @@ class ImisAuthTestCase extends DrupalWebTestCase {
     $edit['imis_auth_host'] = $url;
     $this->drupalPost('admin/people/imis_auth', $edit, t('Save configuration'));
     $this->assertText(t('Invalid url scheme.'), 'Configuration is not saved due to an invalid url scheme in host.');
+
+    // Try checking if user/password is accessible.
+    $path = 'user/password';
+
+    // Uncheck the option for "Request new password".
+    $edit = array('imis_auth_disable_forgot_password' => FALSE);
+    $this->drupalPost('admin/people/imis_auth', $edit, t('Save configuration'));
+    $this->assertResponse(200, format_string('User is able to access !path.', array('!path' => $path)));
+
+    // Check the option for "Request new password".
+    variable_set('imis_auth_disable_forgot_password', TRUE);
+    menu_rebuild();
+    $this->drupalGet($path);
+    $this->assertResponse(403, format_string('User is not able to access !path.', array('!path' => $path)));
+
+    $this->drupalLogout();
   }
 }

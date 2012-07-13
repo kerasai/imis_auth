@@ -1,8 +1,5 @@
 <?php
 
-define('MOCK_USERNAME', 'Drupal');
-define('MOCK_PASSWORD', 'Drupal');
-
 /**
  * Implements hook_menu().
  */
@@ -21,7 +18,7 @@ function imis_auth_mock_menu() {
  */
 function imis_auth_mock_server($method = 'ValidateLoginWithData') {
   // Only allowed methods are ValidateLogin and ValidateLoginWithData.
-  if (strcmp($method, 'ValidateLogin') || strcmp($method, 'ValidateLoginWithData')) {
+  if (strcmp($method, 'ValidateLogin') && strcmp($method, 'ValidateLoginWithData')) {
     drupal_add_http_header('Status', 500);
     drupal_exit();
   }
@@ -30,7 +27,7 @@ function imis_auth_mock_server($method = 'ValidateLoginWithData') {
   $xml = simplexml_load_string($skeleton);
   $data = imis_auth_mock_retrieve_data();
 
-  if (!strcmp($_POST['Username'], MOCK_USERNAME) && !strcmp($_POST['Password'], MOCK_PASSWORD)) {
+  if (!strcmp($_POST['Username'], variable_get('imis_auth_mock_username', 'Drupal')) && !strcmp($_POST['Password'], variable_get('imis_auth_mock_password', 'Drupal'))) {
     $xml->addChild('ResultCode', 0);
     $xml->addChild('ResultMessage', 'Success');
     $xml->addChild('ID', $data['id']);
@@ -65,7 +62,7 @@ function imis_auth_mock_retrieve_data() {
     'customer_type' => 'STAFF',
     'billing_category' => 'PRODUCTS',
     'contact_status' => 'A',
-    'full_name' => MOCK_USERNAME,
+    'full_name' => variable_get('imis_auth_mock_username', 'Drupal'),
   );
   return $data;
 }
