@@ -8,12 +8,12 @@
  * Tests for ATS/iMIS service.
  */
 class ImisAuthTestCase extends DrupalWebTestCase {
-  // ATS/iMIS Testing Data located at http://www.atsol.org/demo/webservices/.
-  protected $name;
-  protected $password;
-  public $method;
-  public $host;
-  public $filename;
+  private $name = 'Drupal';
+  private $password = 'Drupal';
+
+  private $method = 'ValidateLoginWithData';
+  private $filename 'imis-auth-mock-xml';
+  private $host;
 
   public static function getInfo() {
     return array(
@@ -26,13 +26,9 @@ class ImisAuthTestCase extends DrupalWebTestCase {
   public function setUp() {
     parent::setUp('imis_auth', 'imis_auth_mock');
 
-    // Set the properties so they are re-usable.
+    // Set the host here to be able to grab $base_url.
     global $base_url;
-    $this->name = 'Drupal';
-    $this->password = 'Drupal';
-    $this->method = 'ValidateLoginWithData';
     $this->host = $base_url;
-    $this->filename = 'imis-auth-mock.xml';
 
     // Set the module's configurations.
     variable_set('imis_auth_host', $this->host);

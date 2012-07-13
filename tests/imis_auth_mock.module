@@ -17,14 +17,20 @@ function imis_auth_mock_menu() {
 }
 
 /**
- * Responds with appropriate xml format. $method doesn't really do much.
+ * Responds with appropriate xml format.
  */
 function imis_auth_mock_server($method = 'ValidateLoginWithData') {
+  // Only allowed methods are ValidateLogin and ValidateLoginWithData.
+  if (strcmp($method, 'ValidateLogin') || strcmp($method, 'ValidateLoginWithData')) {
+    drupal_add_http_header('Status', 500);
+    drupal_exit();
+  }
+
   $skeleton = '<DrupalLoginResultsWithData />';
   $xml = simplexml_load_string($skeleton);
   $data = imis_auth_mock_retrieve_data();
 
-  if ($_POST['Username'] == MOCK_USERNAME && $_POST['Password'] == MOCK_PASSWORD) {
+  if (!strcmp($_POST['Username'], MOCK_USERNAME) && !strcmp($_POST['Password'], MOCK_PASSWORD)) {
     $xml->addChild('ResultCode', 0);
     $xml->addChild('ResultMessage', 'Success');
     $xml->addChild('ID', $data['id']);
