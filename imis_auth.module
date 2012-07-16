@@ -150,7 +150,8 @@ function imis_auth_exempt_list($list) {
   $header = array(t('User ID'), t('User Name'), t('Email Address'));
   $rows = array();
   foreach($list as $uid) {
-    if ($user = user_load($uid)) {
+    $uid = (int) $uid;
+    if ($uid && $user = user_load($uid)) {
       $name = theme('username', array('account' => $user));
       $email = l($user->mail, 'mailto:'. $user->mail);
       $rows[] = array($user->uid, $name, $email);
